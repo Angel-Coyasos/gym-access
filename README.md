@@ -25,23 +25,29 @@ Consulta [ARCHITECTURE.md](ARCHITECTURE.md) para el diseño completo de bounded 
 # 1. Clonar y preparar variables de entorno
 cp .env.example .env
 
-# 2. Levantar los contenedores
+# 2. Registrar el dominio local en el archivo de hosts (requiere sudo)
+#    Linux/Mac:
+echo "127.0.0.1   gym-access" | sudo tee -a /etc/hosts
+#    Windows (PowerShell como Administrador):
+#    Add-Content C:\Windows\System32\drivers\etc\hosts "127.0.0.1   gym-access"
+
+# 3. Levantar los contenedores
 docker compose up -d
 
-# 3. Instalar dependencias PHP
+# 4. Instalar dependencias PHP
 docker compose exec app composer install
 
-# 4. Generar la app key
+# 5. Generar la app key
 docker compose exec app php artisan key:generate
 
-# 5. Correr las migraciones
+# 6. Correr las migraciones
 docker compose exec app php artisan migrate
 
-# 6. Verificar que los workers están corriendo
+# 7. Verificar que los workers están corriendo
 docker compose exec app php artisan queue:monitor engagement
 ```
 
-La aplicación queda disponible en `http://localhost:8000`.
+La aplicación queda disponible en `http://gym-access`.
 
 > Supervisor levanta automáticamente el queue worker y el outbox publisher (`outbox:publish --interval=5`). No se necesita ningún paso adicional para activarlos.
 
