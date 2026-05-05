@@ -28,13 +28,16 @@ cp .env.example .env
 # 2. Levantar los contenedores
 docker compose up -d
 
-# 3. Generar la app key
+# 3. Instalar dependencias PHP
+docker compose exec app composer install
+
+# 4. Generar la app key
 docker compose exec app php artisan key:generate
 
-# 4. Correr las migraciones
+# 5. Correr las migraciones
 docker compose exec app php artisan migrate
 
-# 5. Verificar que los workers están corriendo
+# 6. Verificar que los workers están corriendo
 docker compose exec app php artisan queue:monitor engagement
 ```
 
