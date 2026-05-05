@@ -1,58 +1,183 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Gym Access System
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Monolito modular para gestión de acceso físico y engagement en una cadena de gimnasios. Implementa DDD, CQRS y el patrón Outbox sobre Laravel 13 + PostgreSQL + Redis.
 
-## About Laravel
+Consulta [ARCHITECTURE.md](ARCHITECTURE.md) para el diseño completo de bounded contexts, comunicación inter-modular, ACL y CQRS.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Stack
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- PHP 8.3-FPM
+- Laravel 13
+- PostgreSQL 16
+- Redis 7
+- Nginx
+- Supervisor (queue worker + outbox worker)
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Levantar el proyecto
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+**Requisitos:** Docker y Docker Compose instalados.
 
 ```bash
-composer require laravel/boost --dev
+# 1. Clonar y preparar variables de entorno
+cp .env.example .env
 
-php artisan boost:install
+# 2. Levantar los contenedores
+docker compose up -d
+
+# 3. Generar la app key
+docker compose exec app php artisan key:generate
+
+# 4. Correr las migraciones
+docker compose exec app php artisan migrate
+
+# 5. Verificar que los workers están corriendo
+docker compose exec app php artisan queue:monitor engagement
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+La aplicación queda disponible en `http://localhost:8000`.
 
-## Contributing
+> Supervisor levanta automáticamente el queue worker y el outbox publisher (`outbox:publish --interval=5`). No se necesita ningún paso adicional para activarlos.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+---
 
-## Code of Conduct
+## Correr los tests
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+```bash
+docker compose exec app php artisan test
+```
 
-## Security Vulnerabilities
+Los tests cubren:
+- Adaptador de API externa (`DummyJsonQuoteAdapterTest`) — DIP, fault handling, contrato JSON
+- Handler de check-in (`RegisterCheckInHandlerTest`) — atomicidad Outbox, UUID, endpoint HTTP
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+---
 
-## License
+## APIs
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+### POST /api/check-in
+
+Registra el acceso físico de un miembro. Operación síncrona y transaccional.
+
+```bash
+curl -s -X POST http://localhost:8000/api/check-in \
+  -H "Content-Type: application/json" \
+  -d '{"member_id": "member-001"}' | jq
+```
+
+Respuesta exitosa (`201 Created`):
+
+```json
+{
+    "check_in_id": "c17a10cf-48e3-4cde-867e-2474a3c17844",
+    "member_id": "member-001",
+    "checked_in_at": "2026-05-05 03:39:04"
+}
+```
+
+Validación fallida (`422 Unprocessable Entity`):
+
+```bash
+curl -s -X POST http://localhost:8000/api/check-in \
+  -H "Content-Type: application/json" \
+  -d '{}' | jq
+```
+
+```json
+{
+    "message": "The member id field is required.",
+    "errors": {
+        "member_id": ["The member id field is required."]
+    }
+}
+```
+
+---
+
+### GET /api/dashboard/{memberId}
+
+Historial de accesos combinado con las frases motivacionales asignadas. Lee directamente del read model desnormalizado (`check_in_summaries`) — sin JOINs.
+
+> El campo `quote` puede aparecer como `null` si el worker aún no procesó el evento (consistencia eventual). Refrescar en unos segundos.
+
+```bash
+curl -s http://localhost:8000/api/dashboard/member-001 | jq
+```
+
+Respuesta exitosa (`200 OK`):
+
+```json
+{
+    "member_id": "member-001",
+    "total": 3,
+    "check_ins": [
+        {
+            "check_in_id": "c17a10cf-48e3-4cde-867e-2474a3c17844",
+            "checked_in_at": "2026-05-05T03:39:04.000000Z",
+            "quote": {
+                "body": "The desire to know your own soul will end all other desires.",
+                "author": "Rumi"
+            }
+        },
+        {
+            "check_in_id": "a83f21bc-...",
+            "checked_in_at": "2026-05-04T22:13:00.000000Z",
+            "quote": {
+                "body": "Keep going.",
+                "author": "Unknown"
+            }
+        }
+    ]
+}
+```
+
+Miembro sin check-ins (`200 OK`):
+
+```json
+{
+    "member_id": "member-999",
+    "total": 0,
+    "check_ins": []
+}
+```
+
+---
+
+## Flujo end-to-end
+
+```
+POST /api/check-in
+  └─ DB::transaction → INSERT check_ins + INSERT outbox_events
+       └─ Respuesta 201 inmediata
+
+[cada 5s] outbox:publish
+  └─ SELECT outbox_events WHERE published_at IS NULL
+       └─ HandleCheckInForEngagement::dispatch → Redis queue
+       └─ UPDATE published_at = now()
+
+[queue worker] HandleCheckInForEngagement
+  └─ GET dummyjson.com/quotes/random
+       └─ INSERT daily_motivations
+       └─ INSERT check_in_summaries (read model)
+
+GET /api/dashboard/{memberId}
+  └─ SELECT * FROM check_in_summaries WHERE member_id = ?
+```
+
+---
+
+## Monitoreo
+
+```bash
+# Estado de la queue
+docker compose exec app php artisan queue:monitor engagement
+
+# Logs en tiempo real (queue worker + outbox worker)
+docker compose logs app -f
+
+# Jobs fallidos
+docker compose exec app php artisan queue:failed
+```
