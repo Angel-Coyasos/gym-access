@@ -72,7 +72,7 @@ Los tests cubren:
 Registra el acceso físico de un miembro. Operación síncrona y transaccional.
 
 ```bash
-curl -s -X POST http://localhost:8000/api/check-in \
+curl -s -X POST http://gym-access/api/check-in \
   -H "Content-Type: application/json" \
   -d '{"member_id": "member-001"}' | jq
 ```
@@ -90,7 +90,7 @@ Respuesta exitosa (`201 Created`):
 Validación fallida (`422 Unprocessable Entity`):
 
 ```bash
-curl -s -X POST http://localhost:8000/api/check-in \
+curl -s -X POST http://gym-access/api/check-in \
   -H "Content-Type: application/json" \
   -d '{}' | jq
 ```
@@ -113,7 +113,7 @@ Historial de accesos combinado con las frases motivacionales asignadas. Lee dire
 > El campo `quote` puede aparecer como `null` si el worker aún no procesó el evento (consistencia eventual). Refrescar en unos segundos.
 
 ```bash
-curl -s http://localhost:8000/api/dashboard/member-001 | jq
+curl -s http://gym-access/api/dashboard/member-001 | jq
 ```
 
 Respuesta exitosa (`200 OK`):
